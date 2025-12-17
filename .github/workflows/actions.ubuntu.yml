@@ -37,6 +37,8 @@ jobs:
 
       - name: Install Cloudflare Tunnel
         uses: ./.github/actions.linux/2.0.cloudflare-install
+        env:
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
 
       - name: Run Cloudflare Tunnel
         uses: ./.github/actions.linux/2.1.cloudflare-run
