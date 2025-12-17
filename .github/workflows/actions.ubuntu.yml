@@ -43,8 +43,8 @@ jobs:
       - name: Run Cloudflare Tunnel
         uses: ./.github/actions.linux/2.1.cloudflare-run
 
-      # - name: Keep Alive Monitor
-      #   uses: ./.github/actions.linux/3.0.keep-alive-monitor
+      - name: Keep Alive Monitor
+        uses: ./.github/actions.linux/3.0.keep-alive-monitor
 
       # - name: Publish Repo Artifact
       #   if: always() # Chạy dù step trước fail
