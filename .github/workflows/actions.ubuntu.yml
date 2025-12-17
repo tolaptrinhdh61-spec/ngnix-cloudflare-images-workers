@@ -50,4 +50,4 @@ jobs:
         if: always() # Chạy dù step trước fail
         uses: ./.github/actions.linux/9.9.publish-repo-artifact
         env:
-          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.ARTIFACT_PASS }}
+          ARTIFACT_PASS: ${{ secrets.ARTIFACT_PASS }}
