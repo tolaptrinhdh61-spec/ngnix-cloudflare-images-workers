@@ -1,5 +1,5 @@
-name: 'Cloudflare Run'
-description: 'Khởi động Cloudflare Tunnel với token'
+name: "Cloudflare Run"
+description: "Khởi động Cloudflare Tunnel với token"
 runs:
   using: "composite"
   steps:
@@ -37,4 +37,40 @@ runs:
 
         # Dọn PID cũ nếu có
         if [ -f "$PID_FILE" ]; then
-          OLD_PID="$(cat "$PID_FILE
+          OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+          if [ -n "${OLD_PID:-}" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+            echo "Stopping old cloudflared pid=$OLD_PID"
+            kill "$OLD_PID" || true
+            sleep 1
+          fi
+          rm -f "$PID_FILE"
+        fi
+
+        echo "== Running cloudflared (logs stream to pipeline) =="
+        # ✅ stream log ra pipeline + đồng thời ghi file
+        # ✅ chạy background để pipeline chạy bước tiếp theo
+        stdbuf -oL -eL "$BIN" tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" \
+          2>&1 | tee -a "$LOG_FILE" &
+
+        CF_PID="$!"
+        echo "$CF_PID" > "$PID_FILE"
+        echo "cloudflared pid=$CF_PID"
+        echo "PID_FILE=$PID_FILE"
+        echo "LOG_FILE=$LOG_FILE"
+
+        echo "== Wait for tunnel init =="
+        sleep 5
+
+        if kill -0 "$CF_PID" 2>/dev/null; then
+          echo "✓ Tunnel process is running"
+        else
+          echo "✗ ERROR: Tunnel exited early"
+          echo "---- tail cloudflared log ----"
+          tail -n 200 "$LOG_FILE" || true
+          exit 1
+        fi
+
+        echo "== Tail cloudflared log (last 80 lines) =="
+        tail -n 80 "$LOG_FILE" || true
+
+        echo "✓ Cloudflare Tunnel is up!"
