@@ -46,6 +46,8 @@ jobs:
       - name: Keep Alive Monitor
         uses: ./.github/actions.linux/3.0.keep-alive-monitor
 
-      # - name: Publish Repo Artifact
-      #   if: always() # Chạy dù step trước fail
-      #   uses: ./.github/actions.linux/9.9.publish-repo-artifact
+      - name: Publish Repo Artifact
+        if: always() # Chạy dù step trước fail
+        uses: ./.github/actions.linux/9.9.publish-repo-artifact
+        env:
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.ARTIFACT_PASS }}
