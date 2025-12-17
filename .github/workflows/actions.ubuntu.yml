@@ -35,8 +35,8 @@ jobs:
       - name: Run Nginx
         uses: ./.github/actions.linux/1.2.nginx-run
 
-      # - name: Install Cloudflare Tunnel
-      #   uses: ./.github/actions.linux/2.0.cloudflare-install
+      - name: Install Cloudflare Tunnel
+        uses: ./.github/actions.linux/2.0.cloudflare-install
 
       # - name: Run Cloudflare Tunnel
       #   uses: ./.github/actions.linux/2.1.cloudflare-run
