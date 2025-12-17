@@ -26,8 +26,8 @@ jobs:
         with:
           clean: true
 
-      # - name: List repo tree
-      #   uses: ./.github/actions.linux/1.0.list-repo-tree
+      - name: List repo tree
+        uses: ./.github/actions.linux/1.0.list-repo-tree
 
       # - name: Setup Nginx
       #   uses: ./.github/actions.linux/1.1.nginx-setup
