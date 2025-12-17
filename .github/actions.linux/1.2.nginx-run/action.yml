@@ -1,0 +1,78 @@
+name: 'Nginx Run'
+description: 'Khởi động Nginx và kiểm tra health'
+runs:
+  using: "composite"
+  steps:
+    - name: Start nginx & healthcheck (repo-local pid/logs)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        PREFIX="$PWD/nginx"
+        CONF="nginx.linux.conf"
+
+        PID_FILE="$PREFIX/run/nginx.pid"
+
+        ACCESS_LOG="$PREFIX/logs/loadbalancer-access.log"
+        LB_ERROR_LOG="$PREFIX/logs/loadbalancer-error.log"
+        MAIN_ERROR_LOG="$PREFIX/logs/nginx-error.log"
+
+        echo "== Test nginx configuration =="
+        nginx -t -p "$PREFIX" -c "$CONF"
+
+        echo "== Start nginx (daemon mode) =="
+        if [ -s "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+          echo "✓ nginx already running (PID: $(cat "$PID_FILE"))"
+        else
+          nginx -p "$PREFIX" -c "$CONF"
+        fi
+
+        echo "== Wait for healthcheck =="
+        for i in $(seq 1 30); do
+          if curl -fsS "http://127.0.0.1:8080/nginx-health" >/dev/null 2>&1; then
+            echo "✓ nginx is up and running!"
+            curl -i "http://127.0.0.1:8080/nginx-health" || true
+            break
+          fi
+          sleep 1
+          if [ "$i" -eq 30 ]; then
+            echo "✗ ERROR: nginx did not become healthy"
+            echo "---- tail nginx logs ----"
+            tail -n 200 "$LB_ERROR_LOG" 2>/dev/null || echo "(no lb error logs yet)"
+            tail -n 200 "$MAIN_ERROR_LOG" 2>/dev/null || echo "(no main error logs yet)"
+            exit 1
+          fi
+        done
+
+        echo "✓ nginx healthcheck passed!"
+
+        echo "== Verify PID file (repo-local) =="
+        for i in $(seq 1 10); do
+          if [ -s "$PID_FILE" ]; then
+            break
+          fi
+          sleep 0.5
+        done
+
+        if [ -s "$PID_FILE" ]; then
+          NPID="$(cat "$PID_FILE")"
+          if kill -0 "$NPID" 2>/dev/null; then
+            echo "✓ Nginx PID: $NPID"
+          else
+            echo "✗ ERROR: PID file exists but process is not alive: $NPID"
+            exit 1
+          fi
+        else
+          echo "✗ ERROR: PID file not found or empty: $PID_FILE"
+          echo "---- process list (nginx) ----"
+          ps aux | grep -E "nginx:|nginx " | grep -v grep || true
+          echo "---- tail nginx logs ----"
+          tail -n 200 "$LB_ERROR_LOG" 2>/dev/null || true
+          tail -n 200 "$MAIN_ERROR_LOG" 2>/dev/null || true
+          exit 1
+        fi
+
+        echo "== Log locations =="
+        echo "ACCESS_LOG=$ACCESS_LOG"
+        echo "LB_ERROR_LOG=$LB_ERROR_LOG"
+        echo "MAIN_ERROR_LOG=$MAIN_ERROR_LOG"
