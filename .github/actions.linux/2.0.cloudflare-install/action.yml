@@ -1,0 +1,38 @@
+name: 'Cloudflare Install'
+description: 'Cài đặt cloudflared binary vào thư mục repo-local'
+runs:
+  using: "composite"
+  steps:
+    - name: Install cloudflared (repo-local cloudflare/bin)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        CLOUDFLARED_VERSION="${CLOUDFLARED_VERSION:-2024.12.2}"
+
+        CF_DIR="$PWD/cloudflare"
+        BIN_DIR="$CF_DIR/bin"
+        RUN_DIR="$CF_DIR/run"
+        LOG_DIR="$CF_DIR/logs"
+
+        mkdir -p "$BIN_DIR" "$RUN_DIR" "$LOG_DIR"
+
+        BIN="$BIN_DIR/cloudflared"
+
+        echo "== Install cloudflared to $BIN =="
+        if [ ! -x "$BIN" ]; then
+          URL1="https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}/cloudflared-linux-amd64"
+          URL2="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+
+          if curl -fsSL "$URL1" -o "$BIN"; then
+            echo "Downloaded cloudflared version: $CLOUDFLARED_VERSION"
+          else
+            echo "WARN: failed to download $URL1, fallback to latest"
+            curl -fsSL "$URL2" -o "$BIN"
+          fi
+
+          chmod +x "$BIN"
+        fi
+
+        echo "== cloudflared version =="
+        "$BIN" --version || true
