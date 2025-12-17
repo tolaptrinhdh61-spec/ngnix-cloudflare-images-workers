@@ -1,0 +1,156 @@
+name: 'Keep-Alive Monitor'
+description: 'Monitor Nginx + Cloudflare Tunnel with auto-exit after max duration'
+
+inputs:
+  max_seconds:
+    description: 'Max monitoring duration in seconds (e.g. 7200 for 2h)'
+    required: true
+    default: '7200'
+  interval_seconds:
+    description: 'Check interval in seconds (e.g. 30)'
+    required: true
+    default: '30'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Keep-Alive Monitor (Nginx + Cloudflare) with Auto-Exit
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "=========================================="
+        echo "Pipeline Keep-Alive Monitor Started"
+        echo "=========================================="
+        echo ""
+
+        # ✅ BẮT BUỘC: phải cấu hình mới chạy
+        MAX_SECONDS="${{ inputs.max_seconds }}"
+        INTERVAL="${{ inputs.interval_seconds }}"
+
+        if [ -z "$MAX_SECONDS" ] || [ -z "$INTERVAL" ]; then
+          echo "❌ ERROR: Missing required inputs"
+          echo "  max_seconds: $MAX_SECONDS"
+          echo "  interval_seconds: $INTERVAL"
+          exit 1
+        fi
+
+        # ✅ PID files (repo-local chuẩn)
+        NGINX_PID_FILE="$GITHUB_WORKSPACE/nginx/run/nginx.pid"
+        CF_PID_FILE="$GITHUB_WORKSPACE/cloudflare/run/cloudflared.pid"
+
+        # Logs (repo-local)
+        NGINX_ACCESS_LOG="$GITHUB_WORKSPACE/nginx/logs/loadbalancer-access.log"
+        NGINX_ERR_LOG="$GITHUB_WORKSPACE/nginx/logs/loadbalancer-error.log"
+        NGINX_MAIN_ERR="$GITHUB_WORKSPACE/nginx/logs/nginx-error.log"
+
+        CF_LOG="$GITHUB_WORKSPACE/cloudflare/logs/cloudflared.log"
+
+        echo "Config:"
+        echo "  MAX_SECONDS=$MAX_SECONDS"
+        echo "  INTERVAL=$INTERVAL"
+        echo "  NGINX_PID_FILE=$NGINX_PID_FILE"
+        echo "  CF_PID_FILE=$CF_PID_FILE"
+        echo ""
+
+        # Function để check process
+        check_process() {
+          local name="$1"
+          local pid_file="$2"
+
+          if [ -f "$pid_file" ]; then
+            local pid
+            pid="$(cat "$pid_file" 2>/dev/null || true)"
+
+            if [ -z "${pid:-}" ]; then
+              echo "✗ $name PID file is empty: $pid_file"
+              return 1
+            fi
+
+            if ps -p "$pid" > /dev/null 2>&1; then
+              echo "✓ $name is running (PID: $pid)"
+              return 0
+            else
+              echo "✗ $name is NOT running (PID: $pid - process died)"
+              return 1
+            fi
+          else
+            echo "✗ $name PID file not found: $pid_file"
+            return 1
+          fi
+        }
+
+        START_TS="$(date +%s)"
+        COUNTER=0
+
+        while true; do
+          COUNTER=$((COUNTER + 1))
+          NOW_TS="$(date +%s)"
+          ELAPSED=$((NOW_TS - START_TS))
+          TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+
+          echo ""
+          echo "=========================================="
+          echo "Monitor Check #$COUNTER - $TIMESTAMP"
+          echo "Elapsed: ${ELAPSED}s / ${MAX_SECONDS}s"
+          echo "=========================================="
+
+          # ✅ Auto-exit khi đủ thời gian
+          if [ "$ELAPSED" -ge "$MAX_SECONDS" ]; then
+            echo "OK: reached max_seconds=$MAX_SECONDS. Exiting monitor so pipeline can publish artifact."
+            exit 0
+          fi
+
+          # Check Nginx
+          echo ""
+          echo "--- Nginx Status ---"
+          if check_process "Nginx" "$NGINX_PID_FILE"; then
+            echo ""
+            echo ">> Nginx Access Logs (last 20 lines):"
+            tail -n 20 "$NGINX_ACCESS_LOG" 2>/dev/null || echo "  (no access logs yet)"
+
+            echo ""
+            echo ">> Nginx LB Error Logs (last 20 lines):"
+            tail -n 20 "$NGINX_ERR_LOG" 2>/dev/null || echo "  (no lb errors)"
+
+            echo ""
+            echo ">> Nginx Main Error Logs (last 10 lines):"
+            tail -n 10 "$NGINX_MAIN_ERR" 2>/dev/null || echo "  (no errors)"
+          else
+            echo "Nginx error logs:"
+            tail -n 40 "$NGINX_MAIN_ERR" 2>/dev/null || echo "  (no error logs)"
+          fi
+
+          # Check Cloudflare Tunnel
+          echo ""
+          echo "--- Cloudflare Tunnel Status ---"
+          if check_process "Cloudflare Tunnel" "$CF_PID_FILE"; then
+            echo ""
+            echo ">> Cloudflare Tunnel Logs (last 40 lines):"
+            tail -n 40 "$CF_LOG" 2>/dev/null || echo "  (no logs yet)"
+          else
+            echo "Tunnel logs:"
+            tail -n 80 "$CF_LOG" 2>/dev/null || echo "  (no logs)"
+          fi
+
+          # Health check nginx endpoint
+          echo ""
+          echo "--- Health Check ---"
+          if curl -fsS "http://127.0.0.1:8080/nginx-health" >/dev/null 2>&1; then
+            echo "✓ Nginx health endpoint responding"
+          else
+            echo "✗ Nginx health endpoint not responding"
+          fi
+
+          # System info
+          echo ""
+          echo "--- System Info ---"
+          echo "Uptime: $(uptime -p 2>/dev/null || uptime)"
+          echo "Memory: $(free -h | awk '/Mem:/ {print $3 "/" $2}')"
+
+          echo ""
+          echo "Waiting ${INTERVAL}s for next check..."
+          echo "=========================================="
+
+          sleep "$INTERVAL"
+        done
