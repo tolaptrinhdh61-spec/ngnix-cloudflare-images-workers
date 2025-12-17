@@ -1,0 +1,36 @@
+name: "Nginx Setup"
+description: "Cài đặt và validate Nginx với config repo-local"
+runs:
+  using: "composite"
+  steps:
+    - name: Install & validate nginx (repo-local)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "== Ensure nginx is installed =="
+        if ! command -v nginx >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install -y nginx
+        fi
+        nginx -v || true
+
+        echo "== Prepare repo-local nginx runtime dirs =="
+        mkdir -p nginx/logs nginx/run \
+          nginx/temp/client_body nginx/temp/proxy \
+          nginx/temp/fastcgi nginx/temp/uwsgi nginx/temp/scgi
+
+        echo "== Check config exists (prefix-based) =="
+        # Because we run: nginx -p "$PWD/nginx" -c nginx.linux.conf
+        # The config must be at: $PWD/nginx/nginx.linux.conf
+        if [ ! -f "$PWD/nginx/nginx.linux.conf" ]; then
+          echo "✗ ERROR: missing nginx/nginx.linux.conf"
+          echo "Repo root:"
+          ls -la
+          echo "nginx/ dir:"
+          ls -la nginx || true
+          exit 1
+        fi
+
+        echo "== Validate nginx config (repo-local prefix) =="
+        nginx -t -p "$PWD/nginx" -c nginx.linux.conf
