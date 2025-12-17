@@ -1,0 +1,27 @@
+name: 'List Repo Tree'
+description: 'Hiển thị cây thư mục và file lớn nhất trong repo'
+runs:
+  using: "composite"
+  steps:
+    - name: List repo directories & files (tree)
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "== Repo root =="
+        pwd
+        echo
+
+        echo "== Top-level items =="
+        ls -la
+        echo
+
+        echo "== Full tree (depth=6) =="
+        # depth=6 đủ để nhìn gần như toàn repo mà không nổ log
+        find . -print | sed 's|^\./||' | sort
+        echo
+        echo "== (shown first 200 lines, increase if needed) =="
+
+        echo
+        echo "== Largest files (top 30) =="
+        # In ra các file lớn nhất để dễ debug cache/artifacts
+        find . -type f -printf '%s\t%p\n' 2>/dev/null | sort -nr | head -n 30 | awk '{printf "%.2f MB\t%s\n", $1/1024/1024, $2}'
