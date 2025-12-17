@@ -1,22 +1,26 @@
 name: 'Pack & Publish Encrypted Artifact'
 description: 'Pack repository, encrypt with password, and publish as artifact'
 
-inputs:
-  artifact_password:
-    description: 'Password to encrypt the artifact (should be from secrets)'
-    required: true
+# ✅ FIX: Đổi từ inputs sang env vì workflow truyền qua env
+# inputs:
+#   artifact_password:
+#     description: 'Password to encrypt the artifact'
+#     required: true
 
 runs:
   using: 'composite'
   steps:
     - name: Pack + encrypt repo artifact (always)
+      id: pack-encrypt
       shell: bash
       run: |
         set -euo pipefail
 
-        ARTIFACT_PASSWORD="${{ inputs.artifact_password }}"
+        # ✅ FIX: Đọc từ env thay vì inputs
+        ARTIFACT_PASSWORD="${ARTIFACT_PASS:-}"
         if [ -z "$ARTIFACT_PASSWORD" ]; then
-          echo "❌ ERROR: Missing artifact_password input"
+          echo "❌ ERROR: Missing ARTIFACT_PASS environment variable"
+          echo "Usage: Set env.ARTIFACT_PASS in workflow"
           exit 1
         fi
 
@@ -25,7 +29,7 @@ runs:
         ART_DIR="$GITHUB_WORKSPACE/.artifacts"
         mkdir -p "$ART_DIR"
 
-        # ✅ Tạo runtime debug files (sẽ được nhét vào ZIP trước khi encrypt)
+        # ✅ Tạo runtime debug files
         ENV_OUT="$GITHUB_WORKSPACE/runtime.env"
         ENV_TXT="$GITHUB_WORKSPACE/runtime.txt"
 
@@ -59,10 +63,11 @@ runs:
         echo "=========================================="
         echo "📦 PACKING REPOSITORY"
         echo "=========================================="
+        echo "Working directory: $GITHUB_WORKSPACE"
         echo "Output: $ZIP_OUT"
         echo ""
 
-        # ✅ ZIP với exclude patterns - nén đúng structure
+        # ✅ ZIP với exclude patterns
         cd "$GITHUB_WORKSPACE"
         zip -r "$ZIP_OUT" . \
           -x ".git/*" \
@@ -73,41 +78,35 @@ runs:
           -x "*/dist/*" -x "dist/*" \
           -x "*/build/*" -x "build/*" \
           -x "*/.cache/*" -x ".cache/*" \
-          -x "*.tar.gz" -x "*.enc" -x "*.zip"
+          -x "*.tar.gz" -x "*.enc" -x "*.zip" || {
+            echo "⚠️  ZIP command failed but continuing..."
+          }
 
         echo ""
-        echo "✅ ZIP created successfully"
-
-        # ✅ Safe size check với fallback
         if [ -f "$ZIP_OUT" ]; then
+          echo "✅ ZIP created successfully"
           ZIP_SIZE=$(ls -lh "$ZIP_OUT" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "unknown")
           echo "Size: ${ZIP_SIZE}"
         else
-          echo "⚠️  Warning: ZIP file not found for size check"
+          echo "❌ ERROR: ZIP file not created"
+          exit 1
         fi
 
         echo ""
         echo "📋 ZIP contents preview (first 30 entries):"
-
-        # ✅ Safe preview với proper error handling
         if command -v unzip >/dev/null 2>&1; then
-          set +e  # Tạm tắt exit on error
+          set +e
           ZIP_LIST=$(unzip -l "$ZIP_OUT" 2>/dev/null)
           ZIP_EXIT=$?
-          set -e  # Bật lại exit on error
+          set -e
           
           if [ $ZIP_EXIT -eq 0 ] && [ -n "$ZIP_LIST" ]; then
             echo "$ZIP_LIST" | head -n 33
           else
-            echo "⚠️  Could not list ZIP contents (exit code: $ZIP_EXIT)"
-            # Fallback: show basic info
-            if [ -f "$ZIP_OUT" ]; then
-              echo "ZIP file exists at: $ZIP_OUT"
-              echo "File size: $(stat -f%z "$ZIP_OUT" 2>/dev/null || stat -c%s "$ZIP_OUT" 2>/dev/null || echo "unknown")"
-            fi
+            echo "⚠️  Could not list ZIP contents"
           fi
         else
-          echo "⚠️  unzip command not available, skipping preview"
+          echo "⚠️  unzip not available"
         fi
 
         echo ""
@@ -122,26 +121,25 @@ runs:
           -out "$ENC_OUT" \
           -pass env:ARTIFACT_PASSWORD
 
-        # Xoá ZIP gốc để tránh lộ nội dung
+        # Xoá ZIP gốc
         rm -f "$ZIP_OUT"
 
         echo ""
-        echo "✅ Encryption completed"
-
-        # ✅ Safe encrypted size check
         if [ -f "$ENC_OUT" ]; then
+          echo "✅ Encryption completed"
           ENC_SIZE=$(ls -lh "$ENC_OUT" 2>/dev/null | awk '{print $5}' 2>/dev/null || echo "unknown")
           echo "Encrypted size: ${ENC_SIZE}"
           
-          # Verify file is not empty
-          ENC_BYTES=$(stat -f%z "$ENC_OUT" 2>/dev/null || stat -c%s "$ENC_OUT" 2>/dev/null || echo "0")
+          ENC_BYTES=$(stat -c%s "$ENC_OUT" 2>/dev/null || stat -f%z "$ENC_OUT" 2>/dev/null || echo "0")
           if [ "$ENC_BYTES" -gt 0 ]; then
             echo "✅ Encrypted file verified (${ENC_BYTES} bytes)"
           else
-            echo "⚠️  Warning: Encrypted file is empty!"
+            echo "❌ ERROR: Encrypted file is empty!"
+            exit 1
           fi
         else
-          echo "❌ Error: Encrypted file not found!"
+          echo "❌ ERROR: Encrypted file not created"
+          exit 1
         fi
 
         echo ""
@@ -156,33 +154,26 @@ runs:
         echo ""
         echo "# Step 2: Extract"
         echo "unzip repo.zip"
-        echo ""
-        echo "# Or extract to specific folder:"
-        echo "unzip repo.zip -d extracted/"
         echo "=========================================="
 
-        # ✅ Export variables cho các steps sau (GitHub Actions style)
+        # ✅ Export cho steps sau
         echo "ENC_OUT=$ENC_OUT" >> $GITHUB_OUTPUT
         echo "ART_NAME=$ART_NAME" >> $GITHUB_OUTPUT
         echo "ART_DIR=$ART_DIR" >> $GITHUB_OUTPUT
-      env:
-        ARTIFACT_PASSWORD: ${{ inputs.artifact_password }}
-      continue-on-error: true
+      continue-on-error: false  # ✅ Fail nếu có lỗi để dễ debug
 
-    - name: Publish encrypted artifact (.zip.enc)
+    - name: Publish encrypted artifact
       uses: actions/upload-artifact@v4
       if: always()
-      continue-on-error: true
       with:
-        name: ${{ steps.pack-encrypt.outputs.ART_NAME || format('artifacts-{0}-{1}', github.repository, github.run_id) }}
-        path: ${{ steps.pack-encrypt.outputs.ENC_OUT || '.artifacts/*.zip.enc' }}
+        name: ${{ steps.pack-encrypt.outputs.ART_NAME }}
+        path: ${{ steps.pack-encrypt.outputs.ENC_OUT }}
         retention-days: 90
-        if-no-files-found: warn
+        if-no-files-found: error  # ✅ Fail rõ ràng nếu không có file
 
     - name: Show artifact info & links
       shell: bash
       if: always()
-      continue-on-error: true
       run: |
         set -euo pipefail
 
@@ -204,28 +195,24 @@ runs:
         echo "🔗 Access Links:"
         echo "----------------------------------------"
         echo ""
-        echo "📊 Workflow Run Summary:"
+        echo "📊 Workflow Run:"
         echo "   ${REPO_URL}/actions/runs/${RUN_ID}"
         echo ""
-        echo "📦 Artifacts Page (Download here):"
+        echo "📦 Download Artifacts:"
         echo "   ${REPO_URL}/actions/runs/${RUN_ID}#artifacts"
         echo ""
-        echo "📜 Workflow Logs:"
-        echo "   ${REPO_URL}/actions/runs/${RUN_ID}/logs"
-        echo ""
         echo "=========================================="
-        echo "⬇️  HOW TO DOWNLOAD:"
+        echo "⬇️  HOW TO DOWNLOAD & DECRYPT:"
         echo "=========================================="
         echo "1. Go to: ${REPO_URL}/actions/runs/${RUN_ID}"
-        echo "2. Scroll down to 'Artifacts' section"
-        echo "3. Find artifact: ${ART_NAME}"
-        echo "4. Click to download"
-        echo "5. Decrypt using ARTIFACT_PASSWORD"
+        echo "2. Scroll to 'Artifacts' section"
+        echo "3. Click '${ART_NAME}' to download"
+        echo "4. Decrypt with command:"
         echo ""
-        echo "🔐 Decrypt command:"
         echo "openssl enc -d -aes-256-cbc -pbkdf2 \\"
         echo "  -in \"${ART_NAME}.zip.enc\" \\"
         echo "  -out repo.zip \\"
         echo "  -pass pass:\"YOUR_PASSWORD\""
-        echo "=========================================="
         echo ""
+        echo "5. Extract: unzip repo.zip"
+        echo "=========================================="
