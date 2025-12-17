@@ -1,0 +1,40 @@
+name: 'Cloudflare Run'
+description: 'Khởi động Cloudflare Tunnel với token'
+runs:
+  using: "composite"
+  steps:
+    - name: Start Cloudflare Tunnel (repo-local pid/logs, token-only)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "== Start Cloudflare Tunnel (token-only) =="
+
+        # ✅ Token phải có (lấy từ pipeline variables/secret)
+        : "${CLOUDFLARE_TUNNEL_TOKEN:?Missing CLOUDFLARE_TUNNEL_TOKEN}"
+
+        ROOT="$PWD"
+        CF_DIR="$ROOT/cloudflare"
+        BIN="$CF_DIR/bin/cloudflared"
+        RUN_DIR="$CF_DIR/run"
+        LOG_DIR="$CF_DIR/logs"
+
+        PID_FILE="$RUN_DIR/cloudflared.pid"
+        LOG_FILE="$LOG_DIR/cloudflared.log"
+
+        mkdir -p "$RUN_DIR" "$LOG_DIR"
+
+        if [ ! -x "$BIN" ]; then
+          echo "✗ ERROR: cloudflared binary not found or not executable: $BIN"
+          echo "Hint: ensure 2.0.cloudflare-install.yml installs to cloudflare/bin/cloudflared"
+          ls -la "$CF_DIR" || true
+          ls -la "$CF_DIR/bin" || true
+          exit 1
+        fi
+
+        echo "cloudflared version:"
+        "$BIN" --version || true
+
+        # Dọn PID cũ nếu có
+        if [ -f "$PID_FILE" ]; then
+          OLD_PID="$(cat "$PID_FILE
