@@ -5,19 +5,19 @@ on:
     branches:
       - main
   schedule:
-    - cron: "0 */2 * * *" # Mỗi 2 giờ (UTC)
+    - cron: "*/59 * * * *" # mỗi 59 phút (UTC)
   workflow_dispatch: # Cho phép chạy thủ công
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 130 # 2h10p để đủ buffer
+    timeout-minutes: 59 # 2h10p để đủ buffer
 
     env:
       CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
       CLOUDFLARED_VERSION: "2024.12.2"
       ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASS }}
-      KEEP_ALIVE_MAX_SECONDS: "7200" # 2h
+      KEEP_ALIVE_MAX_SECONDS: "3540" # 59 phút ("7200" # 2h)
       KEEP_ALIVE_INTERVAL_SECONDS: "5"
 
     steps:
@@ -37,17 +37,17 @@ jobs:
 
       - name: Install Cloudflare Tunnel
         uses: ./.github/actions.linux/2.0.cloudflare-install
-        env:
-          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
 
       - name: Run Cloudflare Tunnel
         uses: ./.github/actions.linux/2.1.cloudflare-run
+        env:
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
 
       - name: Keep Alive Monitor
         uses: ./.github/actions.linux/3.0.keep-alive-monitor
+        env:
+          ARTIFACT_PASSWORD: ${{ secrets.ARTIFACT_PASSWORD }}
 
       - name: Publish Repo Artifact
         if: always() # Chạy dù step trước fail
         uses: ./.github/actions.linux/9.9.publish-repo-artifact
-        env:
-          ARTIFACT_PASS: ${{ secrets.ARTIFACT_PASS }}
